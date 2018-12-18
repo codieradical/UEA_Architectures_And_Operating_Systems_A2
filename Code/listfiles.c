@@ -45,7 +45,8 @@ void listFiles(char *directory) {
 
       char modeStr[11] = "----------\0";
 
-      //If the file is not a regular file or directory, continue looping (skip it).
+      /* If the file is not a regular file or directory, 
+         continue looping (skip it). */
       if (!S_ISREG(fileStat.st_mode) && !S_ISDIR(fileStat.st_mode)) continue;
 
       printf("%s\n", entry->d_name);
@@ -67,10 +68,11 @@ void listFiles(char *directory) {
       if (fileStat.st_mode & S_IROTH) modeStr[7] = 'r';
       if (fileStat.st_mode & S_IWOTH) modeStr[8] = 'w';
       if (fileStat.st_mode & S_IXOTH) modeStr[9] = 'x';
-      //Interesting note:
-      //During development, I tested this on Mac OS for convenience. 
-      //Mac OS has extended attributes, which it displays with an extra mode character, '@'.
-      //eg "-rw-r--r--@ 1 alex231  staff  275 16 Dec 17:21 assignment2.code-workspace"
+      /* Interesting note:
+         During development, I tested this on Mac OS for convenience. 
+         Mac OS has extended attributes, 
+         which it displays with an extra mode character, '@'.
+         eg "-rw-r--r--@ 1 alex231  staff  275 16 Dec 17:21 .gitignore" */
 
       struct group *fileGroup;
       fileGroup = getgrgid(fileStat.st_gid);
@@ -82,7 +84,12 @@ void listFiles(char *directory) {
       strftime(dateString, 13, "%d %b %R\0", localtime(&(fileStat.st_mtime)));
 
      
-      printf("%s %d %s %6s %5lld %s %s\n", modeStr, fileStat.st_nlink, fileOwner->pw_name, fileGroup->gr_name, fileStat.st_size, dateString, entry->d_name);
+      printf("%s %d %s %6s %5lld %s %s\n", 
+         modeStr, 
+         fileStat.st_nlink, 
+         fileOwner->pw_name, fileGroup->gr_name, 
+         fileStat.st_size, 
+         dateString, entry->d_name);
    }
 
    closedir(dp);

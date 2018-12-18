@@ -8,52 +8,55 @@
 #include <pwd.h>
 #include <time.h>
 
-char* getPermissionsString(mode_t permissions) {
+// char* getPermissionsString(mode_t permissions) {
 
-   /* Allocate a character array (a string) for the permissions string.
-      Strings are null-terminated. A null character has a value of 0.
-      '\0' is a character of value 0.
-      If strings aren't terminated correcvtly, problems can occur.*/
-   char permissionsString[11] = "----------\0";
+//    /* Allocate a character array (a string) for the permissions string.
+//       Strings are null-terminated. A null character has a value of 0.
+//       '\0' is a character of value 0.
+//       If strings aren't terminated correcvtly, problems can occur.*/
+//    char permissionsString[11] = "----------\0";
 
-   //printf(permissionsString);
-   if (permissions & S_IFDIR) permissionsString[0] = 'd';
-   if (permissions & S_IRUSR) permissionsString[1] = 'r';
-   if (permissions & S_IWUSR) permissionsString[2] = 'w';
-   if (permissions & S_IXUSR) permissionsString[3] = 'x';
-   if (permissions & S_IRGRP) permissionsString[4] = 'r';
-   if (permissions & S_IWGRP) permissionsString[5] = 'w';
-   if (permissions & S_IXGRP) permissionsString[6] = 'x';
-   if (permissions & S_IROTH) permissionsString[7] = 'r';
-   if (permissions & S_IWOTH) permissionsString[8] = 'w';
-   if (permissions & S_IXOTH) permissionsString[9] = 'x';
-   return permissionsString;
-}
+//    //printf(permissionsString);
+//    if (permissions & S_IFDIR) permissionsString[0] = 'd';
+//    if (permissions & S_IRUSR) permissionsString[1] = 'r';
+//    if (permissions & S_IWUSR) permissionsString[2] = 'w';
+//    if (permissions & S_IXUSR) permissionsString[3] = 'x';
+//    if (permissions & S_IRGRP) permissionsString[4] = 'r';
+//    if (permissions & S_IWGRP) permissionsString[5] = 'w';
+//    if (permissions & S_IXGRP) permissionsString[6] = 'x';
+//    if (permissions & S_IROTH) permissionsString[7] = 'r';
+//    if (permissions & S_IWOTH) permissionsString[8] = 'w';
+//    if (permissions & S_IXOTH) permissionsString[9] = 'x';
+//    return permissionsString;
+// }
 
-int main(int argc, char *argv[])
-{
-   //Linux has a maximum directory length of 4096 for most filesystems.
-   //So allocate a 4096 long character buffer.
-   char currentDirectory[4096];
-   //Get Current Working Directory
-   getcwd(currentDirectory);
 
-   printf("\nSearching for files in:\n");
-   printf(currentDirectory);
-   printf("\n\n");
-
-   DIR *dp = opendir(currentDirectory);
-
+//TODO
+//FILE TREE WALK
+//nftw
+void listFiles(char *directory) {
+   DIR *dp = opendir(directory);
    struct dirent *entry;
-
    while ((entry = readdir(dp)) != NULL)
    {
+      if(!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
       struct stat fileStat;
-      stat(entry->d_name, &fileStat);
+      lstat(entry->d_name, &fileStat);
 
       char modeStr[11] = "----------\0";
 
-      //printf(permissionsString);
+      //If the file is not a regular file or directory, continue looping (skip it).
+      if (!S_ISREG(fileStat.st_mode) && !S_ISDIR(fileStat.st_mode)) continue;
+
+      printf("%s\n", entry->d_name);
+
+      if (S_ISDIR(fileStat.st_mode)) {
+         char currentDirectory[4096];
+         sprintf(currentDirectory, "%s/%s", directory, entry->d_name);
+         listFiles(currentDirectory);
+         continue;
+      }
+
       if (fileStat.st_mode & S_IFDIR) modeStr[0] = 'd';
       if (fileStat.st_mode & S_IRUSR) modeStr[1] = 'r';
       if (fileStat.st_mode & S_IWUSR) modeStr[2] = 'w';
@@ -79,10 +82,25 @@ int main(int argc, char *argv[])
       strftime(dateString, 13, "%d %b %R\0", localtime(&(fileStat.st_mtime)));
 
      
-      printf("%s %d %s %6s %5d %s %s\n", modeStr, fileStat.st_nlink, fileOwner->pw_name, fileGroup->gr_name, fileStat.st_size, dateString, entry->d_name);
+      printf("%s %d %s %6s %5lld %s %s\n", modeStr, fileStat.st_nlink, fileOwner->pw_name, fileGroup->gr_name, fileStat.st_size, dateString, entry->d_name);
    }
 
    closedir(dp);
+}
+
+int main(int argc, char *argv[])
+{
+   //Linux has a maximum directory length of 4096 for most filesystems.
+   //So allocate a 4096 long character buffer.
+   char currentDirectory[4096];
+   //Get Current Working Directory
+   getcwd(currentDirectory);
+
+   printf("\nSearching for files in:\n");
+   printf("%s", currentDirectory);
+   printf("\n\n");
+
+   listFiles(currentDirectory);
 
    printf("\n");
 

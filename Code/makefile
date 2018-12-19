@@ -2,7 +2,9 @@ CC=gcc
 CFLAGS=-Wall
 
 all: 
-	$(CC) listfiles.c -o listfiles $(CFLAGS)
+	mkdir -p bin
+	$(CC) listfiles.c -o bin/listfiles $(CFLAGS)
+	$(CC) backupfiles.c -o bin/backupfiles $(CFLAGS)
 
 clean:
-	rm -f listfiles
+	rm -rf bin

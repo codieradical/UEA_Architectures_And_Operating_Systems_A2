@@ -1,10 +1,10 @@
 /*******************************************************************************
 
-   File        : listfiles.s
+   File        : backupfiles.s
 
    Date        : Tuesday 18th December 2018
 
-   Description : Assignment 2 Task 1, ls -l style recursive file list.
+   Description : Assignment 2 Task 2, file list with date condition.
 
    History     : 14/11/2018 - v1.01 - Lots of refactoring.
 
@@ -25,24 +25,123 @@
 #include <time.h>
 #include <ftw.h>
 #include <string.h>
+#include <fcntl.h>
 
 /* The path of a file is an array of characters with a max size of 4096.
-   The path always includes the working directory, 
+   The path always includes the backup path, 
    which doesn't need to be printed.
    The easiest way to make sure it isn't printed, is to just print everything
    after it. 
    
    in this case:
-   path + lengthOfWorkingDirectory = relativePath 
+   path + lengthOfBackupPath = relativePath 
    
    If for any reason this isn't set, the default of 0 will cause the full
    path to be printed, which isn't the end of the world :) */
+static short lengthOfBackupPath = 0;
+static time_t modifiedAfterTimestamp = 0;
 
-static short lengthOfWorkingDirectory = 0;
-
+/* These are optional due to the order of functions,
+   but I've added them in case I move things around, or call functions more. 
+   Alternatively I could use a header. */
 static int printFile(const char* path, const struct stat *fileStat, 
    int flag, struct FTW* fileTreeWalker);
 void getModeString(mode_t mode, char modeStr[]);
+void printHelp();
+
+void printHelp() {
+   printf("\nbackupfiles\n\n"
+            "Lists files modified after the given datetime.\n"
+            "usage: backupfiles <options> <list directory>\n"
+            "options: \n"
+            "   -t <datetime>\n"
+            "      the datetime to list files after.\n"
+            "      datetime can be provided as a string of format"
+            "      \"YYYY-MM-DD hh:mm:ss\", or as a file path, from which\n"
+            "      the modified date will be read.\n"
+            "      Defaults to 1970-01-01 00:00:00.\n"
+            "   -h\n"
+            "      Displays utility help (this messsge).\n\n");
+   exit(1);
+}
+
+int main(int argc, char *argv[])
+{
+   if(argc < 2) {
+      printf("Insufficient Arguments. Use -h for help.");
+      return 1;
+   }
+
+   char path[4096];
+
+   for(int i = 1; i < argc; i++) {
+
+      if(strcmp(argv[i], "-h") == 0) {
+         printHelp();
+      } 
+      
+      else if(strcmp(argv[i], "-t") == 0) {
+         //If -t is provided with no datetime...
+         if(argc <= i + 1) {
+            printf("Invalid Arguments: No datetime provided.\n");
+            return 1;
+         }
+
+         struct tm timestamp;
+         if(strptime(argv[i + 1], "%Y-%m-%d %H:%M:%S", &timestamp) == NULL) {
+            int fileDescriptor = open(argv[i + 1], O_RDWR);
+            if(fileDescriptor == -1) {
+               printf("Fatal Error: Unable to read provided timestamp:\n"
+                     "\"%s\"\n", argv[i + 1]);
+               return 1;
+            }
+            struct stat fileStatus;
+            if(fstat(fileDescriptor, &fileStatus) != 0) {
+               printf("Fatal Error: Unable to read provided\n"
+                     "file modified date.\n");
+               return 1;
+            }
+            modifiedAfterTimestamp = fileStatus.st_mtime;
+         } else {
+            modifiedAfterTimestamp = timegm(&timestamp);
+         }
+         i++;
+      }
+      
+      else {
+         strcpy(path, argv[i]);
+      }
+   }
+
+   if(strlen(path) < 1) {
+      printf("Invalid Arguments: No path provided.\n");
+      return 1;
+   }
+
+   lengthOfBackupPath = (short)strlen(path) + 1;
+
+   struct tm *localTime = localtime(&modifiedAfterTimestamp);
+   char timestampString[20];
+   strftime(timestampString, 20, "%Y-%m-%d %H:%M:%S", localTime);
+
+   printf("\nSearching for files in:\n");
+   printf("%s", path);
+   printf("\nModified after:\n");
+   printf("%s", timestampString);
+   printf("\n\n");
+
+   int nfds;
+   nfds = getdtablesize();
+	if (nftw(path, printFile, nfds, FTW_F | FTW_D) != 0) {
+      printf("Fatal Error: Could not find files.\n"
+               "Please check the provided path: \"%s\".\n", path);
+      return 1;
+   }
+
+   printf("\n");
+
+   return EXIT_SUCCESS;
+}
 
 void getModeString(mode_t mode, char modeStr[]) {
 
@@ -74,38 +173,20 @@ void getModeString(mode_t mode, char modeStr[]) {
       eg "-rw-r--r--@ 1 alex231  staff  275 16 Dec 17:21 .gitignore" */
 }
 
-int main(int argc, char *argv[])
-{
-   /* Linux has a maximum directory length of 4096 for most filesystems.
-      So allocate a 4096 long character buffer. */
-   char currentDirectory[4096];
-   /* Get Current Working Directory */
-   getcwd(currentDirectory, 4096);
-
-   lengthOfWorkingDirectory = (short)strlen(currentDirectory) + 1;
-
-   printf("\nSearching for files in:\n");
-   printf("%s", currentDirectory);
-   printf("\n\n");
-
-   int nfds;
-   nfds = getdtablesize();
-	if (nftw(currentDirectory, printFile, nfds, FTW_F | FTW_D) != 0) {
-      printf("Fatal Error: something went wrong while looking for files.");
-      return 1;
-   }
-
-   printf("\n");
-
-   return EXIT_SUCCESS;
-}
-
 static int printFile(const char* path, const struct stat *fileStat, 
    int flag, struct FTW* fileTreeWalker) 
 {
    /* If the file is not a regular file or directory, 
       continue looping (skip it). */
    if (!S_ISREG(fileStat->st_mode)) return 0;
+
+   /* If the file modified or changed timestamp is lower than (before) the 
+      supplied modified after timestamp, return, don't print it. */
+   if(fileStat->st_mtime < modifiedAfterTimestamp 
+      && fileStat->st_ctime < modifiedAfterTimestamp) 
+   {
+      return 0;
+   }
 
    /* As a personal preference, when declaring array pointers, I place the
       asterisk before the space, and otherwise after. 
@@ -121,7 +202,7 @@ static int printFile(const char* path, const struct stat *fileStat,
    fileOwner = getpwuid(fileStat->st_uid);
 
    char dateString[13];
-   strftime(dateString, 13, "%d %b %R\0", localtime(&(fileStat->st_mtime)));
+   strftime(dateString, 13, "%d %b %R\0", gmtime(&(fileStat->st_mtime)));
 
    /* I'm using fixed column sizes here for convenience.
       As a future improvement, these column lengths could by dynamic,
@@ -133,7 +214,7 @@ static int printFile(const char* path, const struct stat *fileStat,
       fileOwner->pw_name, fileGroup->gr_name, 
       fileStat->st_size, 
       dateString, 
-      &path[lengthOfWorkingDirectory]);
+      &path[lengthOfBackupPath]);
    
    return 0;
 }

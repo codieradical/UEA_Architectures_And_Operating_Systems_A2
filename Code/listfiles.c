@@ -2,11 +2,11 @@
 
    File        : listfiles.s
 
-   Date        : Tuesday 18th December 2018
+   Date        : Monday 17th December 2018
 
    Description : Assignment 2 Task 1, ls -l style recursive file list.
-
-   History     : 14/11/2018 - v1.01 - Lots of refactoring.
+   
+   History     : 17/12/2018 - v1.00 - Initial Implementation.
 
    Author      : Alex H. Newark
 

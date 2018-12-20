@@ -286,7 +286,7 @@ static int backupFile(const char* path, const struct stat *fileStat,
       permission changes.
       This could be acomplished by backing-up folders made prior to the
       filter timestamp, if they contain fields modified after.*/
-   if (!S_ISREG(fileStat->st_mode) && !S_ISDIR(fileStat->st_mode)) return 0;
+   if (!S_ISREG(fileStat->st_mode)) return 0;
 
    if(strlen(&path[backupPathLength]) < 1)
       return 0;

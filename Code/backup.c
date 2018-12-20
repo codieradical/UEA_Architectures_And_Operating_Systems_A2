@@ -154,6 +154,14 @@ int main(int argc, char *argv[])
       return 1;
    }
 
+   printf("%s", argv[0]);
+
+   //Detect symbolic link.
+   char restoring = 0;
+   if(strcmp(argv[0], "restore")) {
+      restoring = 1;
+   }
+
    char backupPath[4096];
 
    for(int i = 1; i < argc; i++) {
@@ -217,7 +225,7 @@ int main(int argc, char *argv[])
       return 1;
    }
 
-   if(backupPathLength > 1) {
+   if(backupPathLength > 1 && !restoring) {
       archiveFile = fopen(archivePath, "wb+");
       backup(backupPath);
    } else {
@@ -308,7 +316,7 @@ static void restore() {
       FILE *restoreFile = fopen(restoreFilePath, "wb+");
       fwrite(fileData, 1, fileSize, restoreFile);
       fclose(restoreFile);
-      chmod(convertOctalStringToUInt(headerData->fileMode))
+      chmod(restoreFilePath, convertOctalStringToUInt(headerData->fileMode, 8));
 
       int filePadding = 512 - (fileSize % 512);
       fseek(archiveFile, filePadding, SEEK_CUR);
@@ -495,7 +503,7 @@ static void makeHeader(const char* relativePath, const struct stat *fileStatus,
       exit(1);
    }
    
-   sprintf(tarHeader->fileMode, "%06o ", fileStatus->st_mode & 0777);
+   sprintf(tarHeader->fileMode, "%06o ", fileStatus->st_mode);
    sprintf(tarHeader->ownerId, "%06o ", fileStatus->st_uid);
    sprintf(tarHeader->groupId, "%06o ", fileStatus->st_gid);
    sprintf(tarHeader->fileSize, "%011o", (int)fileStatus->st_size);

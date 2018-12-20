@@ -12,6 +12,18 @@
 
 *******************************************************************************/
 
+/*******************************************************************************
+   Message to markers:
+
+   While I'm happy to have a working solution, this isn't my best code, and
+   I can think of quite a few ways to improve it. To name a few:
+   -  More utility functions for dealing with tar files, specifically around
+      serialization and deserialization.
+   -  Handling errors better by passing them up where suitable.
+   -  Spliting functions down to smaller ones.
+   -  Refactoring to make better use of variables and repeat operations less.
+*******************************************************************************/
+
 /* Required for nftw */
 #define _XOPEN_SOURCE 1
 #define _XOPEN_SOURCE_EXTENDED 1
@@ -113,6 +125,8 @@ static void makeHeader(const char* relativePath, const struct stat *fileStatus,
    struct tar_header_block *tarHeader);
 static void backup(char* backupPath);
 static void restore();
+unsigned int convertOctalStringToUInt(char * octalString, 
+   unsigned int stringSize);
 
 void printHelp() {
    printf("\nbackupfiles\n\n"
@@ -207,8 +221,8 @@ int main(int argc, char *argv[])
       archiveFile = fopen(archivePath, "wb+");
       backup(backupPath);
    } else {
-
-      //read archive
+      archiveFile = fopen(archivePath, "rb");
+      restore();
    }
 
    fclose(archiveFile);
@@ -244,7 +258,73 @@ static void backup(char* backupPath) {
 }
 
 static void restore() {
+   char restorePath[4347];
+   strncpy(restorePath, archivePath, strlen(archivePath) - 4);
+   mkdir(restorePath, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+   
+   fseek(archiveFile, 0, SEEK_END);
+   long int fileLen = ftell(archiveFile);
+   rewind(archiveFile);
 
+   if(fileLen % 512 != 0) {
+      printf("Fatal Error: Corrupted backup file.\n"
+         "Please check the provided file: \"%s\".\n", archivePath);
+      exit(1);
+   }
+
+   /* Ignore the 1024 buffer at the end*/
+   long int filePos = 0;
+   while(filePos < fileLen - 1024) {
+      struct tar_header_block *headerData = malloc(512);
+      fread(headerData, 512, 1, archiveFile);
+      //printf("\n%s%s\n", headerData->filePathPrefix, headerData->filePath);
+      filePos += 512;
+
+      int fileSize 
+         = convertOctalStringToUInt(headerData->fileSize, 11);
+      char *fileData = malloc(fileSize);
+      fread(fileData, fileSize, 1, archiveFile);
+      filePos += fileSize;
+
+      char *restoreFilePath = malloc(4351);
+      strcat(restoreFilePath, restorePath);
+      strcat(restoreFilePath, "/");
+      strcat(restoreFilePath, headerData->filePathPrefix);
+      strcat(restoreFilePath, headerData->filePath);
+
+      //Make necessary folders.
+      char *currentFolderEnd = strchr(restoreFilePath, (int)'/');
+      while(currentFolderEnd != NULL) {
+         int currentFolderPathLength 
+            = currentFolderEnd - restoreFilePath;
+         char *currentFolder = malloc(4096);
+         memcpy(currentFolder, restoreFilePath, currentFolderPathLength);
+         currentFolder[currentFolderPathLength] = '\0';
+         mkdir(currentFolder, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+         currentFolderEnd = 
+            strchr(&restoreFilePath[currentFolderPathLength + 1], (int)'/');
+      }
+
+      FILE *restoreFile = fopen(restoreFilePath, "wb+");
+      fwrite(fileData, 1, fileSize, restoreFile);
+      fclose(restoreFile);
+      chmod(convertOctalStringToUInt(headerData->fileMode))
+
+      int filePadding = 512 - (fileSize % 512);
+      fseek(archiveFile, filePadding, SEEK_CUR);
+      filePos += filePadding;
+   }
+}
+
+unsigned int convertOctalStringToUInt(char * octalString, 
+   unsigned int stringSize)
+{
+    unsigned int converted = 0;
+    int i = 0;
+    while ((i < stringSize) && octalString[i]){
+        converted = (converted << 3) | (unsigned int) (octalString[i++] - '0');
+    }
+    return converted;
 }
 
 void getModeString(mode_t mode, char modeStr[]) {
@@ -351,12 +431,6 @@ static int backupFile(const char* path, const struct stat *fileStat,
    makeHeader(&path[backupPathLength], fileStat, tarHeader);
    fwrite((void*)tarHeader, 1, 512, archiveFile);
 
-   long int debug = ftell(archiveFile);
-   //printf("current offset: %ld", debug);
-   //printf("path: %s", path);
-   //printf("data: %s", fileData);
-   //printf("sizeof data: %lu", sizeof(fileData));
-   //printf("sizeof %lu", sizeof *fileData);
    while(filelen > 512) {
       fwrite(fileData, 1, 512, archiveFile);
       fileData = &fileData[512];
@@ -383,18 +457,6 @@ static void makeHeader(const char* relativePath, const struct stat *fileStatus,
    memcpy(tarHeader->minor, "000000 ", 7);
    memset(tarHeader->version, '0', 2);
    memset(tarHeader->checksum, ' ', sizeof(char) * 8);
-
-
-   // memset(tarHeader->filePath, '\0', 100);
-   // memset(tarHeader->filePathPrefix, '\0', 155);
-   // memset(tarHeader->fileMode, '\0', 8);
-   // memset(tarHeader->ownerId, '\0', 8);
-   // memset(tarHeader->groupId, '\0', 8);
-   // memset(tarHeader->unused, '\0', 12);
-   // memset(tarHeader->linkName, '\0', 100);
-   // memset(tarHeader->ownerName, '\0', 32);
-   // memset(tarHeader->groupName, '\0', 32);
-   // memset(tarHeader->unused, '\0', 12);
 
    /* setup filePath and filePath prefix */
    unsigned int pathLength = strlen(relativePath);
@@ -436,7 +498,7 @@ static void makeHeader(const char* relativePath, const struct stat *fileStatus,
    sprintf(tarHeader->fileMode, "%06o ", fileStatus->st_mode & 0777);
    sprintf(tarHeader->ownerId, "%06o ", fileStatus->st_uid);
    sprintf(tarHeader->groupId, "%06o ", fileStatus->st_gid);
-   sprintf(tarHeader->fileSize, "%011llo", fileStatus->st_size);
+   sprintf(tarHeader->fileSize, "%011o", (int)fileStatus->st_size);
    tarHeader->fileSize[11] = ' ';
    sprintf(tarHeader->modifiedTime, "%0lo", fileStatus->st_mtime);
    tarHeader->modifiedTime[11] = ' ';
@@ -457,23 +519,4 @@ static void makeHeader(const char* relativePath, const struct stat *fileStatus,
    sprintf(tarHeader->checksum, "%06o", checksum);
    tarHeader->checksum[6] = '\0';
    tarHeader->checksum[7] = ' ';
-
-   // printf("%s%s%s%s%s%s%s%c%s%s%s%s%s%s%s%s%s",
-   //    tarHeader->filePath,
-   //    tarHeader->fileMode,
-   //    tarHeader->ownerId,
-   //    tarHeader->groupId,
-   //    tarHeader->fileSize,
-   //    tarHeader->modifiedTime,
-   //    tarHeader->checksum,
-   //    tarHeader->type,
-   //    tarHeader->linkName,
-   //    tarHeader->ustarMagic,
-   //    tarHeader->version,
-   //    tarHeader->ownerName,
-   //    tarHeader->groupName,
-   //    tarHeader->major,
-   //    tarHeader->minor,
-   //    tarHeader->filePathPrefix,
-   //    tarHeader->unused);
 }

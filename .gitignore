@@ -54,3 +54,5 @@ dkms.conf
 # IDE files
 *.code-workspace
 Code/bin/
+
+*.tar*

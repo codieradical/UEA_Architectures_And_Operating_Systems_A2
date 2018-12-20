@@ -8,4 +8,5 @@ all:
 	$(CC) backup.c -o bin/backup $(CFLAGS)
 
 clean:
-	rm -rf bin
+	rm -rf bin *.tar
+	find . -name "*.tar*" -type f -delete

@@ -13,9 +13,9 @@
 *******************************************************************************/
 
 /*******************************************************************************
-   Message to markers:
+   Note:
 
-   While I'm happy to have a working solution, this isn't my best code, and
+   While I'm happy to have a working solution, 
    I can think of quite a few ways to improve it. To name a few:
    -  More utility functions for dealing with tar files, specifically around
       serialization and deserialization.
@@ -129,6 +129,10 @@ static void restore();
 unsigned int convertOctalStringToUInt(char * octalString, 
    unsigned int stringSize);
 
+/*******************************************************************************
+   printHelp
+      Prints a simple help message for the user.
+*******************************************************************************/
 void printHelp() {
    printf("\nbackupfiles\n\n"
          "Lists files modified after the given datetime.\n"
@@ -148,6 +152,13 @@ void printHelp() {
    exit(1);
 }
 
+
+/*******************************************************************************
+   main
+      Program entry function.
+      - argc = argument count
+      - argv = command line arguments
+*******************************************************************************/
 int main(int argc, char *argv[])
 {
    if(argc < 2) {
@@ -165,6 +176,7 @@ int main(int argc, char *argv[])
 
    char backupPath[4096];
 
+   /* Parse Arguments */
    for(int i = 1; i < argc; i++) {
 
       if(strcmp(argv[i], "-h") == 0) {
@@ -240,6 +252,12 @@ int main(int argc, char *argv[])
    return EXIT_SUCCESS;
 }
 
+
+/*******************************************************************************
+   backup
+      Creates a backup archive containing all files found within the backupPath
+      directory.
+*******************************************************************************/
 static void backup(char* backupPath) {
    struct tm *localTime = localtime(&modifiedAfterTimestamp);
    char timestampString[20];
@@ -266,6 +284,10 @@ static void backup(char* backupPath) {
    fwrite((void*)padding, 1, 1024, archiveFile);
 }
 
+/*******************************************************************************
+   restore
+      Restores filed from the backup archive.
+*******************************************************************************/
 static void restore() {
    char restorePath[4347];
    strncpy(restorePath, archivePath, strlen(archivePath) - 4);
@@ -326,8 +348,14 @@ static void restore() {
       fseek(archiveFile, filePadding, SEEK_CUR);
       filePos += filePadding;
    }
+
+   printf("\nSuccessfully restored from backup.\n");
 }
 
+/*******************************************************************************
+   convertOctalStringToUInt
+      Converts an octal strigt to a uint and returns it.
+*******************************************************************************/
 unsigned int convertOctalStringToUInt(char * octalString, 
    unsigned int stringSize)
 {
@@ -339,6 +367,11 @@ unsigned int convertOctalStringToUInt(char * octalString,
     return converted;
 }
 
+
+/*******************************************************************************
+   getModeString
+      Returns the ls -l style string representation of a mode_t.
+*******************************************************************************/
 void getModeString(mode_t mode, char modeStr[]) {
 
    /* Allocate a character array (a string) for the permissions string.
@@ -369,6 +402,10 @@ void getModeString(mode_t mode, char modeStr[]) {
       eg "-rw-r--r--@ 1 alex231  staff  275 16 Dec 17:21 .gitignore" */
 }
 
+/*******************************************************************************
+   backupFile
+      Write an individual file to the backup archive.
+*******************************************************************************/
 static int backupFile(const char* path, const struct stat *fileStat, 
    int flag, struct FTW* fileTreeWalker) 
 {
@@ -380,10 +417,7 @@ static int backupFile(const char* path, const struct stat *fileStat,
       filter timestamp, if they contain fields modified after.*/
    if (!S_ISREG(fileStat->st_mode)) return 0;
 
-   if(strlen(&path[backupPathLength]) < 1)
-      return 0;
-
-   //Don't backup the archive.
+   /* If the current path is the backup archive, ignore it */
    if(strcmp(path, archivePath) == 0 
       || strcmp(&path[backupPathLength], archivePath) == 0)
       return 0;
@@ -421,16 +455,25 @@ static int backupFile(const char* path, const struct stat *fileStat,
    char *fileData;
    long int filelen;
 
-   file = fopen(path, "rb");  // Open the file in binary mode
+   /* Open the file... */
+   file = fopen(path, "rb");
+   /* If it couldn't be opened, move on... */
    if(file == NULL) return 1;
-   fseek(file, 0, SEEK_END);          // Jump to the end of the file
-   filelen = ftell(file);             // Get the current byte offset in the file
-   rewind(file);                      // Jump back to the beginning of the file
+   /* Skip to the end of the file */
+   fseek(file, 0, SEEK_END); 
+   /* The length of the file is the cursor's position */
+   filelen = ftell(file);
+   /* Go back to the start of the file. */
+   rewind(file);
 
-   fileData = (char *)malloc((filelen)*sizeof(char)); // Enough memory for file
+   /* Allocate an array for file data */
+   fileData = (char *)malloc((filelen)*sizeof(char));
+   /* Read file data. */
    fread(fileData, filelen, 1, file); // Read in the entire file
-   fclose(file); // Close the file
+   /* Close the file */
+   fclose(file);
 
+   /* Print file details. */
    printf("%s %d %s %6s %7lld %s %s\n", 
       modeStr, 
       fileStat->st_nlink, 
@@ -439,16 +482,23 @@ static int backupFile(const char* path, const struct stat *fileStat,
       dateString, 
       &path[backupPathLength]);
 
+   /* Allocate space for a new tar header. */
    struct tar_header_block *tarHeader = malloc(sizeof(struct tar_header_block));
+   /* Make a tar header for the file */
    makeHeader(&path[backupPathLength], fileStat, tarHeader);
+   /* Write the header to the archive */
    fwrite((void*)tarHeader, 1, 512, archiveFile);
 
+   /* While the file has full 512 blocks of data left... */
    while(filelen > 512) {
+      /* Write them to the file */
       fwrite(fileData, 1, 512, archiveFile);
       fileData = &fileData[512];
       filelen -= 512;
    }
+   /* If the file has any remaining data... */
    if(filelen > 0) {
+      /* Write it. */
       fwrite(fileData, 1, filelen, archiveFile);
       /* Write padding. */
       char *padding = malloc(512 - filelen);
@@ -459,6 +509,10 @@ static int backupFile(const char* path, const struct stat *fileStat,
    return 0;
 }
 
+/*******************************************************************************
+   makeHeader
+      Creates a tar header for a file.
+*******************************************************************************/
 static void makeHeader(const char* relativePath, const struct stat *fileStatus, 
    struct tar_header_block *tarHeader)
 {
@@ -521,6 +575,8 @@ static void makeHeader(const char* relativePath, const struct stat *fileStatus,
    struct group *fileGroup = getgrgid(fileStatus->st_gid);
    strcpy(tarHeader->groupName, fileGroup->gr_name);
 
+   /* The checksum is very important, if it's wrong, the tar won't be opened
+      by many tools */
    unsigned int checksum = 0;
    unsigned char *tarHeaderBytes = (unsigned char*)tarHeader;
 

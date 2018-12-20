@@ -41,6 +41,7 @@
 static short backupPathLength = 0;
 static time_t modifiedAfterTimestamp = 0;
 static FILE *archiveFile;
+static char archivePath[4351];
 
 /* Structure / Function Definitions
    Alternatively I could use a header, but the assignment brief only
@@ -107,7 +108,6 @@ struct tar_header_block {
 static int backupFile(const char* path, const struct stat *fileStat, 
    int flag, struct FTW* fileTreeWalker);
 void getModeString(mode_t mode, char modeStr[]);
-unsigned int calculate_checksum(struct tar_header_block *tarHeader);
 void printHelp();
 static void makeHeader(const char* relativePath, const struct stat *fileStatus, 
    struct tar_header_block *tarHeader);
@@ -141,7 +141,6 @@ int main(int argc, char *argv[])
    }
 
    char backupPath[4096];
-   char archivePath[4351];
 
    for(int i = 1; i < argc; i++) {
 
@@ -292,6 +291,11 @@ static int backupFile(const char* path, const struct stat *fileStat,
    if(strlen(&path[backupPathLength]) < 1)
       return 0;
 
+   //Don't backup the archive.
+   if(strcmp(path, archivePath) == 0 
+      || strcmp(&path[backupPathLength], archivePath) == 0)
+      return 0;
+
    /* If the file modified or changed timestamp is lower than (before) the 
       supplied modified after timestamp, return, don't print it. */
    if(fileStat->st_mtime < modifiedAfterTimestamp 
@@ -320,19 +324,13 @@ static int backupFile(const char* path, const struct stat *fileStat,
       As a future improvement, these column lengths could by dynamic,
       by looping through files before printing to calculate how many characters
       the longest field in each column contains. */
-   printf("%s %d %s %6s %7lld %s %s\n", 
-      modeStr, 
-      fileStat->st_nlink, 
-      fileOwner->pw_name, fileGroup->gr_name, 
-      fileStat->st_size, 
-      dateString, 
-      &path[backupPathLength]);
 
    FILE *file;
    char *fileData;
    long int filelen;
 
    file = fopen(path, "rb");  // Open the file in binary mode
+   if(file == NULL) return 1;
    fseek(file, 0, SEEK_END);          // Jump to the end of the file
    filelen = ftell(file);             // Get the current byte offset in the file
    rewind(file);                      // Jump back to the beginning of the file
@@ -340,6 +338,14 @@ static int backupFile(const char* path, const struct stat *fileStat,
    fileData = (char *)malloc((filelen)*sizeof(char)); // Enough memory for file
    fread(fileData, filelen, 1, file); // Read in the entire file
    fclose(file); // Close the file
+
+   printf("%s %d %s %6s %7lld %s %s\n", 
+      modeStr, 
+      fileStat->st_nlink, 
+      fileOwner->pw_name, fileGroup->gr_name, 
+      fileStat->st_size, 
+      dateString, 
+      &path[backupPathLength]);
 
    struct tar_header_block *tarHeader = malloc(sizeof(struct tar_header_block));
    makeHeader(&path[backupPathLength], fileStat, tarHeader);
@@ -370,12 +376,25 @@ static int backupFile(const char* path, const struct stat *fileStat,
 static void makeHeader(const char* relativePath, const struct stat *fileStatus, 
    struct tar_header_block *tarHeader)
 {
+   memset(tarHeader, '\0', 512);
    /* setup ustar magic and checksum empty */
    strcpy(tarHeader->ustarMagic, "ustar");
-   strcpy(tarHeader->version, "0");
-   memset(tarHeader->checksum, ' ', 8);
-   strcpy(tarHeader->major, "0000000");
-   strcpy(tarHeader->minor, "0000000");
+   memcpy(tarHeader->major, "000000 ", 7);
+   memcpy(tarHeader->minor, "000000 ", 7);
+   memset(tarHeader->version, '0', 2);
+   memset(tarHeader->checksum, ' ', sizeof(char) * 8);
+
+
+   // memset(tarHeader->filePath, '\0', 100);
+   // memset(tarHeader->filePathPrefix, '\0', 155);
+   // memset(tarHeader->fileMode, '\0', 8);
+   // memset(tarHeader->ownerId, '\0', 8);
+   // memset(tarHeader->groupId, '\0', 8);
+   // memset(tarHeader->unused, '\0', 12);
+   // memset(tarHeader->linkName, '\0', 100);
+   // memset(tarHeader->ownerName, '\0', 32);
+   // memset(tarHeader->groupName, '\0', 32);
+   // memset(tarHeader->unused, '\0', 12);
 
    /* setup filePath and filePath prefix */
    unsigned int pathLength = strlen(relativePath);
@@ -414,11 +433,13 @@ static void makeHeader(const char* relativePath, const struct stat *fileStatus,
       exit(1);
    }
    
-   sprintf(tarHeader->fileMode, "%06o", fileStatus->st_mode & 0777);
-   sprintf(tarHeader->ownerId, "%06o", fileStatus->st_uid);
-   sprintf(tarHeader->groupId, "%06o", fileStatus->st_gid);
-   sprintf(tarHeader-> fileSize, "%011llo", fileStatus->st_size);
+   sprintf(tarHeader->fileMode, "%06o ", fileStatus->st_mode & 0777);
+   sprintf(tarHeader->ownerId, "%06o ", fileStatus->st_uid);
+   sprintf(tarHeader->groupId, "%06o ", fileStatus->st_gid);
+   sprintf(tarHeader->fileSize, "%011llo", fileStatus->st_size);
+   tarHeader->fileSize[11] = ' ';
    sprintf(tarHeader->modifiedTime, "%0lo", fileStatus->st_mtime);
+   tarHeader->modifiedTime[11] = ' ';
    
    struct passwd *fileOwner = getpwuid(fileStatus->st_uid);
    strcpy(tarHeader->ownerName, fileOwner->pw_name);
@@ -426,8 +447,16 @@ static void makeHeader(const char* relativePath, const struct stat *fileStatus,
    struct group *fileGroup = getgrgid(fileStatus->st_gid);
    strcpy(tarHeader->groupName, fileGroup->gr_name);
 
-   unsigned int checksum = calculate_checksum(tarHeader);
+   unsigned int checksum = 0;
+   unsigned char *tarHeaderBytes = (unsigned char*)tarHeader;
+
+   for (int i = 0; i < 500; i++) {
+      checksum += tarHeaderBytes[i];
+   }
+
    sprintf(tarHeader->checksum, "%06o", checksum);
+   tarHeader->checksum[6] = '\0';
+   tarHeader->checksum[7] = ' ';
 
    // printf("%s%s%s%s%s%s%s%c%s%s%s%s%s%s%s%s%s",
    //    tarHeader->filePath,
@@ -447,23 +476,4 @@ static void makeHeader(const char* relativePath, const struct stat *fileStatus,
    //    tarHeader->minor,
    //    tarHeader->filePathPrefix,
    //    tarHeader->unused);
-}
-
-unsigned int calculate_checksum(struct tar_header_block *tarHeader)
-{
-   /* Create a copy of the header so that the checksum field can be safely
-      cleared. */
-   struct tar_header_block *testTarHeader 
-      = malloc(sizeof(struct tar_header_block));
-   memcpy(testTarHeader, tarHeader, sizeof(struct tar_header_block));
-   memset(testTarHeader->checksum, ' ', 8);
-   char *tarHeaderBytes = (char*)&testTarHeader;
-
-   unsigned int checksum = 0;
-
-   for (int i = 0; i < 512; i++) {
-      checksum += tarHeaderBytes[i];
-   }
-
-   return checksum;
 }

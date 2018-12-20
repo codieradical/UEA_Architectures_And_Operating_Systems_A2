@@ -38,6 +38,7 @@
 #include <ftw.h>
 #include <string.h>
 #include <fcntl.h>
+#include <utime.h>
 
 /* The path of a file is an array of characters with a max size of 4096.
    The path always includes the backup path, 
@@ -317,7 +318,10 @@ static void restore() {
       fwrite(fileData, 1, fileSize, restoreFile);
       fclose(restoreFile);
       chmod(restoreFilePath, convertOctalStringToUInt(headerData->fileMode, 8));
-
+      struct utimbuf timeStamps;
+      timeStamps.actime = time(NULL);
+      timeStamps.modtime = convertOctalStringToUInt(headerData->modifiedTime, 11);
+      utime(restoreFilePath, &timeStamps);
       int filePadding = 512 - (fileSize % 512);
       fseek(archiveFile, filePadding, SEEK_CUR);
       filePos += filePadding;

@@ -170,7 +170,7 @@ int main(int argc, char *argv[])
 
    //Detect symbolic link.
    char restoring = 0;
-   if(strcmp(argv[0], "restore")) {
+   if(!strcmp(argv[0], "restore")) {
       restoring = 1;
    }
 
